@@ -1,1 +1,61 @@
+#!/usr/bin/bash
+dir_seqs=$HOME/data0/01_Genomes/sjzhang/01_Nematodes
+dir_out=$HOME/data1/sjzhang/01_Nematodes/01_Ascaridoidea/01_Pre_assemble
+if [[ ! -d ${dir_out} ]];then mkdir -p ${dir_out};fi
+#if [[ ! -d ${wd}/corrected ]];then mkdir -p ${wd}/corrected;fi
+source /usr/local/anaconda3/bin/activate seqqc
+cd ${seqdir}
+NP=4
+NM=60
+NT=$[$(ls -lh ${dir_seqs}/*_1.clean.fq.gz | wc -l)]
 
+tmp_fifofile="/tmp/$$.fifo"
+trap "exec 9>&-;exec 9<&-;exit 0" 2
+mkfifo ${tmp_fifofile}
+exec 9<>${tmp_fifofile}
+rm ${tmp_fifofile}
+for ((i=1;i<=${NT};i++));do echo >&9;done
+
+for seqs in ${dir_seqs}/*_1.clean.fq.gz;do
+	read -u9
+	{
+
+	out_name=$(basename ${seqs} _1.clean.fq.gz)
+	out_put=${dir_out}/01_fastp/${out_name}_fastp
+	if [[ ! -d ${out_put} ]];then mkdir -p ${out_put};fi
+	echo -e "=========================================\nFastp filtering of ${out_name} is running.....\n=========================================\n\n"
+	fastp \
+		-i ${dir_seqs}/${out_name}_1.clean.fq.gz \
+		-I ${dir_seqs}/${out_name}_2.clean.fq.gz \
+		-o ${out_put}/${out_name}_1.filter.fq.gz \
+		-O ${out_put}/${out_name}_2.filter.fq.gz \
+		-z 4 \
+		-q 20 \
+		-u 30 \
+		-n 5 \
+		--dedup \
+		--detect_adapter_for_pe \
+		--cut_right \
+		--cut_right_window_size 5 \
+		--cut_right_mean_quality 20 \
+		--correction \
+		--overlap_len_require 30 \
+		--overlap_diff_limit 5 \
+		--length_required 60 \
+		-w ${NP} \
+		-h ${out_put}/${out_name}.qcreport.html
+
+	echo -e "=========================================\nFastp filtering of ${out_name} is completed, running fastqc now ....\n=========================================\n\n"
+	cd ${out_put} &&
+	fastqc \
+		-o ${out_put} \
+		-f fastq \
+		-t ${NP} \
+		${out_name}_1.filter.fq.gz ${out_name}_2.filter.fq.gz
+	echo -e "=========================================\nFastqc for ${out_name} is completed !\n=========================================\n\n"
+
+	echo >&9
+	} &
+done
+wait
+echo -e "=========================================\nFastp & fastqc are all completed !!!\n=========================================\n\n"
